@@ -15,50 +15,56 @@ _Auto-generated from `data/co_scientist.db` by_ _`python scripts/build_bench_rep
    - **post-hoc rescore** against every registered gold set — so a bench that ran with `aml-repurposing-paper-top3` at the time can still show whether any hypothesis would have hit the broader `aml-repurposing-paper-5` list, and vice versa,
    - **file pointers** for the artifacts on disk + ready-to-run SQL for the raw DB rows.
 
-**Total benches:** 18 · **With gold-set scoring:** 5
+**Total benches:** 20 · **With gold-set scoring:** 7
 
 ## Headline findings
 
-From the two AML `*-vs-raw` benches, where each model runs the same goal twice: **direct** (a single LM call, no harness) and **pipeline** (the full Generation harness — literature tools + tool loop + dedup). Within each bench both modes share one Elo pool, so the direct→pipeline change is a clean read on what the harness does to a given model.
+The `*-vs-raw` benches run each model twice on the same goal: **direct** (a single LM call, no harness) and **pipeline** (the full Generation harness — literature tools + tool loop + dedup), in one shared Elo pool. We ran the paper baselines twice and added Gemini 2.5 + 3.x, which is enough to see how stable the comparison is.
 
-### 1. The harness helps Anthropic + OpenAI, hurts Google
+### 1. The harness reliably *produces* a hypothesis; whether it *helps* is not reproducible at this sample size
 
-Restricting to the **six models that produced a hypothesis in both modes** (two are excluded — `gemini-2-flash-thinking[raw]` hit a transient HTTP 429 and `gemini-2-pro[pipe]` returned an empty completion; both are infra/flaky non-finishes, not capability gaps), the direct→pipeline Elo change groups cleanly by **provider**:
+After the pipeline reliability fixes, pipeline mode completes for essentially every candidate (the only misses were a transient HTTP 429 and gemini-2.5-pro intermittently returning an empty completion on the forced final call — 2 of 3 pipeline attempts). So the harness *finishes*. But the **direct→pipeline Elo delta swings from run to run**, so it does not support a per-model — let alone per-provider — verdict.
 
-| provider | model | direct (no harness) | pipeline (harness) | Δ Elo |
-| --- | --- | --- | --- | --- |
-| Anthropic | claude-haiku-4.5 | 1-9 (1120) | 10-0 (1300) | **+180** |
-| Anthropic | claude-opus-4.7 | 10-4 (1270) | 14-0 (1367) | **+97** |
-| OpenAI | openai-o1 | 4-6 (1178) | 6-4 (1221) | +43 |
-| OpenAI | gpt-5 | 5-9 (1146) | 6-8 (1172) | +26 |
-| Google | gemini-3-flash | 2-12 (1110) | 0-14 (1074) | −36 |
-| Google | gemini-3-pro | 12-2 (1275) | 7-7 (1186) | −89 |
+Same preset, identical settings, two runs — the delta flips sign for haiku while staying put for o1:
 
-_(Δ Elo is within-bench: haiku/o1 in the paper-baseline pool, opus/gpt-5/gemini-3 in the frontier pool — compare each model to itself, not across rows.)_
+| model | run 1 Δ Elo | run 2 Δ Elo |
+| --- | --- | --- |
+| claude-haiku-4.5 | **+180** (1-9 → 10-0) | **−28** (10-2 → 8-4) |
+| openai-o1 | +43 | +29 |
 
-**Both Anthropic models and both OpenAI models improve with the harness; both Google models regress.** The driver is the model family, not raw strength: within a provider, strength doesn't predict the delta — Anthropic's *weakest* model (haiku) gained the most (+180), while Google's *strongest* (gemini-3-pro) regressed the most (−89). Claude and o1 turn the literature tools into tournament-winning hypotheses; Gemini scores well raw but the tool loop drags its rated hypothesis down. (Caveat: two models per provider — a suggestive split, not a proof.)
+Haiku's *raw* record alone flipped 1-9 → 10-2 across the two runs — with one hypothesis per candidate and ~2 matches per pair, the tournament is dominated by which single hypothesis got sampled, not by the mode. Single-run deltas elsewhere are all over the map and don't line up by provider or strength:
 
-The harness affects *quality, not whether a model finishes*: direct mode (one forced call) is the easy path, and the only two empty candidates failed for infra/flaky reasons above — the single pipeline miss is the harder path, not the direct one.
+| model | Δ Elo (single run) |
+| --- | --- |
+| claude-opus-4.7 | +97 |
+| gemini-2.5-flash | +172 |
+| gemini-2.5-pro | +47 |
+| gpt-5 | +26 |
+| gemini-2.0-flash | −48 |
+| gemini-3-flash | −36 |
+| gemini-3-pro | −89 |
+
+Within Google alone the 2.5 models gain (+172, +47) and the 3.x models lose (−36, −89) — so there is no clean "provider" or "stronger-model" story; an earlier draft that claimed one was reading noise. **The only repeatable signal is openai-o1** (pipeline modestly ahead in both runs). A real per-model verdict needs many more seeds (higher `--n`, more matches) to average out the single-hypothesis variance.
 
 ### 2. Consistency: models converge on mechanisms, not specific drugs
 
-Across all 37 AML hypotheses recorded on this codebase, agreement is at the **mechanism** level, not the compound level:
+Across all 48 AML hypotheses recorded on this codebase, agreement is at the **mechanism** level, not the compound level:
 
-| recurring theme | hypotheses (of 37) |
+| recurring theme | hypotheses (of 48) |
 | --- | --- |
-| leukemic-stem-cell (LSC) targeting | 20 |
+| leukemic-stem-cell (LSC) targeting | 28 |
 | OXPHOS / mitochondrial complex I | 8 |
-| BCL-2 / MCL-1 (Venetoclax axis) | 6 |
+| BCL-2 / MCL-1 (Venetoclax axis) | 7 |
 | FLT3-ITD | 6 |
+| fatty-acid oxidation | 5 |
 | ferroptosis | 3 |
-| fatty-acid oxidation | 3 |
 
-At the **drug** level it's a long tail of one-offs. The only compounds proposed more than once are **Itraconazole** (×5, as an OXPHOS inhibitor) and **Auranofin** (×2, thioredoxin-reductase). **Venetoclax** appears ×6 but as the resistance/combo context, not the novel candidate. Tellingly, all three recurrent names already have prior AML evidence — models default to the familiar, which is exactly what the strict no-prior-evidence prompt forbids (no hypothesis in either bench hit the paper's gold-set picks).
+At the **drug** level it's a long tail of one-offs. The only compounds proposed more than once are **Itraconazole** (×5, as an OXPHOS inhibitor) and **Auranofin** (×2, thioredoxin-reductase). **Venetoclax** appears ×6 but as the resistance/combo context, not the novel candidate. Tellingly, all three recurrent names already have prior AML evidence — models default to the familiar, which is exactly what the strict no-prior-evidence prompt forbids (no hypothesis across any of these benches hit the paper's gold-set picks).
 
 ### Practical implications
 
-- **Match the mode to the model.** Run Claude / o1 through the   pipeline; for Gemini, `--candidate model@direct` is cheaper and   scores better on this task.
-- **Recurrence is a weak novelty signal here.** The most-repeated   picks are the least novel. Surfacing genuinely-novel candidates   needs more breadth (multiple seeds, `--n 5+`) and iterative   refinement, not a single Generation call.
+- **Don't read a single bench's Elo as a model verdict.** The   pipeline reliably produces hypotheses, but at `--n 1` the   direct-vs-pipeline delta is within run-to-run noise. Measuring   whether the harness helps a given model needs many seeds (higher   `--n`, more `--matches`).
+- **Recurrence is a weak novelty signal here.** The most-repeated   picks are the least novel. Surfacing genuinely-novel candidates   needs more breadth and iterative refinement, not a single   Generation call.
 
 
 ## Index of recorded benches
@@ -83,6 +89,8 @@ At the **drug** level it's a long tail of one-offs. The only compounds proposed 
 | [`bnc_01KSGVHY16Q0GHNE9ZJW…`](#bench-bnc_01ksgvhy16q0ghne9zjwzygfng) | 2026-05-26T00:39:32Z | AML repurposing | 4 | 6 | $1.8881 | `aml-repurposing-paper-top3` | 0/3 |
 | [`bnc_01KSN03HG9VW3CPYD40S…`](#bench-bnc_01ksn03hg9vw3cpyd40sa51neb) | 2026-05-27T15:16:01Z | AML repurposing | 8 | 30 | $0.8309 | `aml-repurposing-paper-top3` | 0/3 |
 | [`bnc_01KSN0ZMJZV12F6MDE63…`](#bench-bnc_01ksn0zmjzv12f6mde63h7mw9r) | 2026-05-27T15:31:22Z | AML repurposing | 8 | 56 | $2.0820 | `aml-repurposing-paper-top3` | 0/3 |
+| [`bnc_01KSN8WZ9XZP0HSW68YS…`](#bench-bnc_01ksn8wz9xzp0hsw68ysrdbr77) | 2026-05-27T17:49:43Z | AML repurposing | 8 | 42 | $1.1057 | `aml-repurposing-paper-top3` | 0/3 |
+| [`bnc_01KSN98V3SAB2X0XDSVV…`](#bench-bnc_01ksn98v3sab2x0xdsvv5pyqkm) | 2026-05-27T17:56:12Z | AML repurposing | 4 | 12 | $0.1612 | `aml-repurposing-paper-top3` | 0/3 |
 
 ## Per-bench detail
 
@@ -1320,4 +1328,161 @@ SELECT bc_a.label, bc_b.label, bm.winner,
   JOIN bench_candidates bc_a ON bc_a.id = bm.cand_a
   JOIN bench_candidates bc_b ON bc_b.id = bm.cand_b
  WHERE bm.bench_id='bnc_01KSN0ZMJZV12F6MDE63H7MW9R';
+```
+
+<a id="bench-bnc_01ksn8wz9xzp0hsw68ysrdbr77"></a>
+## Bench `bnc_01KSN8WZ9XZP0HSW68YSRDBR77`
+
+- **Created:** 2026-05-27T17:49:43.617521+00:00
+- **Status:** done
+- **Judge:** `openrouter:google/gemini-3-flash-preview`
+- **Gold set at runtime:** `aml-repurposing-paper-top3` (size 3)
+- **Total cost:** $1.1057
+- **Matches played:** 42
+- **Session:** `ses_01KSN8WZA25QV3RS8F8VKJNS98`
+- **Bench artifact:** `artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/bench/bnc_01KSN8WZ9XZP0HSW68YSRDBR77.json`
+
+**Goal:**
+
+> Produce a ranked list of drug repurposing candidates for acute myeloid leukemia (AML), strictly under the following constraints:  (1) Each candidate must NOT have prior published evidence of being repurposed for AML, and there must be no preclinical studies in AML for the proposed compound at the time of writing. (2) Use only your internal knowledge. Do NOT assume access to DepMap dependency scores, gene-essentiality datasets, transcriptomic screens, or human expert curation. No external inputs. (3) Name the specific compound (INN, brand name, or research-code alias) — do not propose generic d…
+
+### Candidates
+
+| label | mode | n_hyps | W-L | Elo | hits (runtime) | $ | tokens (in / out) | p50 | note |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `gemini-2-pro[raw]` | direct | 1 | 12-0 | 1340 | 0/3 | $0.0413 | 541 / 4,064 | 43.8s |  |
+| `claude-haiku-4.5[raw]` | direct | 1 | 10-2 | 1269 | 0/3 | $0.0078 | 1,432 / 1,280 | 14.3s |  |
+| `claude-haiku-4.5[pipe]` | pipeline | 1 | 8-4 | 1241 | 0/3 | $0.1164 | 99,197 / 3,450 | 87.2s |  |
+| `openai-o1[pipe]` | pipeline | 1 | 6-6 | 1214 | 0/3 | $0.6521 | 15,418 / 7,013 | 148.1s |  |
+| `openai-o1[raw]` | direct | 1 | 4-8 | 1185 | 0/3 | $0.2398 | 612 / 3,844 | 30.8s |  |
+| `gemini-2-flash-thinking[raw]` | direct | 1 | 2-10 | 1099 | 0/3 | $0.0003 | 541 / 525 | 5.6s |  |
+| `gemini-2-flash-thinking[pipe]` | pipeline | 1 | 0-12 | 1051 | 0/3 | $0.0052 | 47,466 / 1,258 | 18.1s |  |
+| `gemini-2-pro[pipe]` | pipeline | 0 | — | — | 0/3 | $0.0427 | 7,842 / 3,288 | — |  |
+
+### Hypotheses surfaced (7 total)
+
+- **Trimetazidine as a Fatty Acid Oxidation Inhibitor for an AML Subgroup** — via `gemini-2-pro (direct)`
+  - Trimetazidine, a clinically approved anti-anginal drug, will selectively eliminate acute myeloid leukemia (AML) stem cells by inhibiting their metabolic dependency on fatty acid oxidation.
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_056855d4417a9917.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_056855d4417a9917.json)
+- **DPP4 inhibition to mobilize and sensitize leukemic stem cells in AML** — via `claude-haiku-4.5 (pipeline)`
+  - Sitagliptin (a clinically approved DPP4 inhibitor) will disrupt the CXCL12-DPP4-GPC3 axis at the bone marrow niche, dislodge quiescent leukemic stem cells from protective metaphyseal microenvironments, and re-sensitize them to cytarabine or
+  - mode: `pipeline` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_3c20191c39846f87.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_3c20191c39846f87.json)
+- **Repurposing Apomorphine for AML treatment** — via `gemini-2-flash-thinking (direct)`
+  - Apomorphine, a dopamine receptor agonist, can induce apoptosis in AML cells by modulating the PI3K/AKT signaling pathway.
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_430f01e4e8f2ecbf.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_430f01e4e8f2ecbf.json)
+- **Belzutifan (HIF-2α Inhibitor) for AML Repurposing** — via `openai-o1 (direct)`
+  - We hypothesize that Belzutifan, a small-molecule inhibitor specific for HIF-2α, can reduce AML blast cell viability and selfsustaining leukemic stem cell activity by blocking hypoxia-driven signaling required for leukemic transformation.
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_9a5fe6dd13e209db.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_9a5fe6dd13e209db.json)
+- **Repurposing Mitapivat for AML via RBC glycolytic enhancement and metabolic vulnerability** — via `claude-haiku-4.5 (direct)`
+  - Mitapivat, a pyruvate kinase-M2 (PKM2) activator approved for sickle cell disease, will selectively induce differentiation and apoptosis in AML blasts by amplifying glycolytic flux and ROS stress, exploiting the Warburg metabolism dependenc
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_9c4e620c196843c7.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_9c4e620c196843c7.json)
+- **Roflumilast-mediated PDE4 inhibition as a novel anti-AML strategy** — via `openai-o1 (pipeline)`
+  - We hypothesize that roflumilast’s selective inhibition of phosphodiesterase-4 (PDE4) can suppress AML blasts by elevating intracellular cAMP and thereby impairing leukemogenic signaling.
+  - mode: `pipeline` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_a6e0a54a55465b0d.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_a6e0a54a55465b0d.json)
+- **RepSox as Differentiation Agent in AML** — via `gemini-2-flash-thinking (pipeline)`
+  - RepSox, a TGF-beta receptor I inhibitor, can induce differentiation of AML blasts and leukemic stem cells, particularly those resistant to standard chemotherapy, by disrupting TGF-beta signaling.
+  - mode: `pipeline` · artifact: [`data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_cd306bcde4aef8f5.json`](data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/hyp_cd306bcde4aef8f5.json)
+
+### Recall across known gold sets (post-hoc rescore)
+
+- · `aml-repurposing-paper-5` (5 entities): **0/5** → _none_
+- · `aml-repurposing-paper-top3` (3 entities): **0/3** → _none_
+
+### Files
+
+- Hypotheses (all `record_hypothesis` payloads): `data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/hypotheses/`
+- LLM transcripts (request + response per call): `data/artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/transcripts/generation/`
+- Bench summary JSON (per-candidate `gold_hit_detail` with alias / field / hyp): `artifacts/ses_01KSN8WZA25QV3RS8F8VKJNS98/bench/bnc_01KSN8WZ9XZP0HSW68YSRDBR77.json`
+
+**SQL to inspect this bench:**
+
+```sql
+-- per-candidate detail
+SELECT label, mode, n_hypotheses, wins, losses,
+       round(mean_elo,0), gold_hits, gold_hit_names,
+       round(total_cost_usd, 4),
+       total_input_tok, total_output_tok
+  FROM bench_candidates
+ WHERE bench_id='bnc_01KSN8WZ9XZP0HSW68YSRDBR77';
+
+-- every match with judge rationale
+SELECT bc_a.label, bc_b.label, bm.winner,
+       round(bm.judge_cost_usd, 4),
+       substr(bm.rationale, 1, 200)
+  FROM bench_matches bm
+  JOIN bench_candidates bc_a ON bc_a.id = bm.cand_a
+  JOIN bench_candidates bc_b ON bc_b.id = bm.cand_b
+ WHERE bm.bench_id='bnc_01KSN8WZ9XZP0HSW68YSRDBR77';
+```
+
+<a id="bench-bnc_01ksn98v3sab2x0xdsvv5pyqkm"></a>
+## Bench `bnc_01KSN98V3SAB2X0XDSVV5PYQKM`
+
+- **Created:** 2026-05-27T17:56:12.541886+00:00
+- **Status:** done
+- **Judge:** `openrouter:google/gemini-3-flash-preview`
+- **Gold set at runtime:** `aml-repurposing-paper-top3` (size 3)
+- **Total cost:** $0.1612
+- **Matches played:** 12
+- **Session:** `ses_01KSN98V3YK9DBTQWK9FRRY0Q4`
+- **Bench artifact:** `artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/bench/bnc_01KSN98V3SAB2X0XDSVV5PYQKM.json`
+
+**Goal:**
+
+> Produce a ranked list of drug repurposing candidates for acute myeloid leukemia (AML), strictly under the following constraints:  (1) Each candidate must NOT have prior published evidence of being repurposed for AML, and there must be no preclinical studies in AML for the proposed compound at the time of writing. (2) Use only your internal knowledge. Do NOT assume access to DepMap dependency scores, gene-essentiality datasets, transcriptomic screens, or human expert curation. No external inputs. (3) Name the specific compound (INN, brand name, or research-code alias) — do not propose generic d…
+
+### Candidates
+
+| label | mode | n_hyps | W-L | Elo | hits (runtime) | $ | tokens (in / out) | p50 | note |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `gemini-2.5-flash[pipe]` | pipeline | 1 | 6-0 | 1284 | 0/3 | $0.0132 | 16,650 / 3,290 | 26.2s |  |
+| `gemini-2.5-pro[pipe]` | pipeline | 1 | 4-2 | 1226 | 0/3 | $0.1071 | 17,197 / 8,558 | 107.1s |  |
+| `gemini-2.5-pro[raw]` | direct | 1 | 2-4 | 1179 | 0/3 | $0.0392 | 541 / 3,852 | 50.0s |  |
+| `gemini-2.5-flash[raw]` | direct | 1 | 0-6 | 1112 | 0/3 | $0.0017 | 541 / 610 | 16.3s |  |
+
+### Hypotheses surfaced (4 total)
+
+- **Repurposing Niclosamide for AML via STAT3 Inhibition** — via `gemini-2.5-flash (direct)`
+  - Niclosamide, an anthelmintic drug, can be repurposed for acute myeloid leukemia (AML) treatment by inhibiting the STAT3 signaling pathway, thereby reducing leukemic cell proliferation and survival.
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_2280caf8fd669dd3.json`](data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_2280caf8fd669dd3.json)
+- **Repurposing of the ERAD Inhibitor Eeyarestatin I for the Treatment of Acute Myeloid Leukemia** — via `gemini-2.5-pro (pipeline)`
+  - The small molecule Eeyarestatin I, an inhibitor of endoplasmic reticulum-associated degradation (ERAD), will selectively induce apoptosis in acute myeloid leukemia (AML) cells, which are dependent on robust protein quality control pathways 
+  - mode: `pipeline` · artifact: [`data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_4816ba4892736e1c.json`](data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_4816ba4892736e1c.json)
+- **Denifanstat for Acute Myeloid Leukemia via FASN Inhibition** — via `gemini-2.5-flash (pipeline)`
+  - Denifanstat, a Fatty Acid Synthase (FASN) inhibitor, will demonstrate therapeutic efficacy against acute myeloid leukemia (AML) blasts and leukemic stem cells (LSCs) by disrupting aberrant lipid metabolism, leading to lipotoxicity, energeti
+  - mode: `pipeline` · artifact: [`data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_86ff66d295a2f5b4.json`](data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_86ff66d295a2f5b4.json)
+- **RNA Polymerase I Inhibition via CX-5461 for AML Therapy** — via `gemini-2.5-pro (direct)`
+  - The small molecule CX-5461, by selectively inhibiting RNA Polymerase I (Pol I)-mediated transcription of ribosomal RNA, will induce potent and selective apoptosis in acute myeloid leukemia (AML) cells, which are addicted to high rates of ri
+  - mode: `direct` · artifact: [`data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_e768dbad247673a9.json`](data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/hyp_e768dbad247673a9.json)
+
+### Recall across known gold sets (post-hoc rescore)
+
+- · `aml-repurposing-paper-5` (5 entities): **0/5** → _none_
+- · `aml-repurposing-paper-top3` (3 entities): **0/3** → _none_
+
+### Files
+
+- Hypotheses (all `record_hypothesis` payloads): `data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/hypotheses/`
+- LLM transcripts (request + response per call): `data/artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/transcripts/generation/`
+- Bench summary JSON (per-candidate `gold_hit_detail` with alias / field / hyp): `artifacts/ses_01KSN98V3YK9DBTQWK9FRRY0Q4/bench/bnc_01KSN98V3SAB2X0XDSVV5PYQKM.json`
+
+**SQL to inspect this bench:**
+
+```sql
+-- per-candidate detail
+SELECT label, mode, n_hypotheses, wins, losses,
+       round(mean_elo,0), gold_hits, gold_hit_names,
+       round(total_cost_usd, 4),
+       total_input_tok, total_output_tok
+  FROM bench_candidates
+ WHERE bench_id='bnc_01KSN98V3SAB2X0XDSVV5PYQKM';
+
+-- every match with judge rationale
+SELECT bc_a.label, bc_b.label, bm.winner,
+       round(bm.judge_cost_usd, 4),
+       substr(bm.rationale, 1, 200)
+  FROM bench_matches bm
+  JOIN bench_candidates bc_a ON bc_a.id = bm.cand_a
+  JOIN bench_candidates bc_b ON bc_b.id = bm.cand_b
+ WHERE bm.bench_id='bnc_01KSN98V3SAB2X0XDSVV5PYQKM';
 ```

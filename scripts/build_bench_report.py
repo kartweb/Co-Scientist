@@ -390,62 +390,68 @@ def _headline_findings_section() -> str:
     return "\n".join([
         "## Headline findings",
         "",
-        "From the two AML `*-vs-raw` benches, where each model runs the same "
-        "goal twice: **direct** (a single LM call, no harness) and "
-        "**pipeline** (the full Generation harness — literature tools + tool "
-        "loop + dedup). Within each bench both modes share one Elo pool, so "
-        "the direct→pipeline change is a clean read on what the harness does "
-        "to a given model.",
+        "The `*-vs-raw` benches run each model twice on the same goal: "
+        "**direct** (a single LM call, no harness) and **pipeline** (the full "
+        "Generation harness — literature tools + tool loop + dedup), in one "
+        "shared Elo pool. We ran the paper baselines twice and added Gemini "
+        "2.5 + 3.x, which is enough to see how stable the comparison is.",
         "",
-        "### 1. The harness helps Anthropic + OpenAI, hurts Google",
+        "### 1. The harness reliably *produces* a hypothesis; whether it "
+        "*helps* is not reproducible at this sample size",
         "",
-        "Restricting to the **six models that produced a hypothesis in both "
-        "modes** (two are excluded — `gemini-2-flash-thinking[raw]` hit a "
-        "transient HTTP 429 and `gemini-2-pro[pipe]` returned an empty "
-        "completion; both are infra/flaky non-finishes, not capability gaps), "
-        "the direct→pipeline Elo change groups cleanly by **provider**:",
+        "After the pipeline reliability fixes, pipeline mode completes for "
+        "essentially every candidate (the only misses were a transient HTTP "
+        "429 and gemini-2.5-pro intermittently returning an empty completion "
+        "on the forced final call — 2 of 3 pipeline attempts). So the harness "
+        "*finishes*. But the **direct→pipeline Elo delta swings from run to "
+        "run**, so it does not support a per-model — let alone per-provider — "
+        "verdict.",
         "",
-        "| provider | model | direct (no harness) | pipeline (harness) | Δ Elo |",
-        "| --- | --- | --- | --- | --- |",
-        "| Anthropic | claude-haiku-4.5 | 1-9 (1120) | 10-0 (1300) | **+180** |",
-        "| Anthropic | claude-opus-4.7 | 10-4 (1270) | 14-0 (1367) | **+97** |",
-        "| OpenAI | openai-o1 | 4-6 (1178) | 6-4 (1221) | +43 |",
-        "| OpenAI | gpt-5 | 5-9 (1146) | 6-8 (1172) | +26 |",
-        "| Google | gemini-3-flash | 2-12 (1110) | 0-14 (1074) | −36 |",
-        "| Google | gemini-3-pro | 12-2 (1275) | 7-7 (1186) | −89 |",
+        "Same preset, identical settings, two runs — the delta flips sign for "
+        "haiku while staying put for o1:",
         "",
-        "_(Δ Elo is within-bench: haiku/o1 in the paper-baseline pool, "
-        "opus/gpt-5/gemini-3 in the frontier pool — compare each model to "
-        "itself, not across rows.)_",
+        "| model | run 1 Δ Elo | run 2 Δ Elo |",
+        "| --- | --- | --- |",
+        "| claude-haiku-4.5 | **+180** (1-9 → 10-0) | **−28** (10-2 → 8-4) |",
+        "| openai-o1 | +43 | +29 |",
         "",
-        "**Both Anthropic models and both OpenAI models improve with the "
-        "harness; both Google models regress.** The driver is the model "
-        "family, not raw strength: within a provider, strength doesn't "
-        "predict the delta — Anthropic's *weakest* model (haiku) gained the "
-        "most (+180), while Google's *strongest* (gemini-3-pro) regressed the "
-        "most (−89). Claude and o1 turn the literature tools into "
-        "tournament-winning hypotheses; Gemini scores well raw but the tool "
-        "loop drags its rated hypothesis down. (Caveat: two models per "
-        "provider — a suggestive split, not a proof.)",
+        "Haiku's *raw* record alone flipped 1-9 → 10-2 across the two runs — "
+        "with one hypothesis per candidate and ~2 matches per pair, the "
+        "tournament is dominated by which single hypothesis got sampled, not "
+        "by the mode. Single-run deltas elsewhere are all over the map and "
+        "don't line up by provider or strength:",
         "",
-        "The harness affects *quality, not whether a model finishes*: direct "
-        "mode (one forced call) is the easy path, and the only two empty "
-        "candidates failed for infra/flaky reasons above — the single "
-        "pipeline miss is the harder path, not the direct one.",
+        "| model | Δ Elo (single run) |",
+        "| --- | --- |",
+        "| claude-opus-4.7 | +97 |",
+        "| gemini-2.5-flash | +172 |",
+        "| gemini-2.5-pro | +47 |",
+        "| gpt-5 | +26 |",
+        "| gemini-2.0-flash | −48 |",
+        "| gemini-3-flash | −36 |",
+        "| gemini-3-pro | −89 |",
+        "",
+        "Within Google alone the 2.5 models gain (+172, +47) and the 3.x "
+        "models lose (−36, −89) — so there is no clean \"provider\" or "
+        "\"stronger-model\" story; an earlier draft that claimed one was "
+        "reading noise. **The only repeatable signal is openai-o1** (pipeline "
+        "modestly ahead in both runs). A real per-model verdict needs many "
+        "more seeds (higher `--n`, more matches) to average out the "
+        "single-hypothesis variance.",
         "",
         "### 2. Consistency: models converge on mechanisms, not specific drugs",
         "",
-        "Across all 37 AML hypotheses recorded on this codebase, agreement is "
+        "Across all 48 AML hypotheses recorded on this codebase, agreement is "
         "at the **mechanism** level, not the compound level:",
         "",
-        "| recurring theme | hypotheses (of 37) |",
+        "| recurring theme | hypotheses (of 48) |",
         "| --- | --- |",
-        "| leukemic-stem-cell (LSC) targeting | 20 |",
+        "| leukemic-stem-cell (LSC) targeting | 28 |",
         "| OXPHOS / mitochondrial complex I | 8 |",
-        "| BCL-2 / MCL-1 (Venetoclax axis) | 6 |",
+        "| BCL-2 / MCL-1 (Venetoclax axis) | 7 |",
         "| FLT3-ITD | 6 |",
+        "| fatty-acid oxidation | 5 |",
         "| ferroptosis | 3 |",
-        "| fatty-acid oxidation | 3 |",
         "",
         "At the **drug** level it's a long tail of one-offs. The only "
         "compounds proposed more than once are **Itraconazole** (×5, as an "
@@ -454,17 +460,20 @@ def _headline_findings_section() -> str:
         "the novel candidate. Tellingly, all three recurrent names already "
         "have prior AML evidence — models default to the familiar, which is "
         "exactly what the strict no-prior-evidence prompt forbids (no "
-        "hypothesis in either bench hit the paper's gold-set picks).",
+        "hypothesis across any of these benches hit the paper's gold-set "
+        "picks).",
         "",
         "### Practical implications",
         "",
-        "- **Match the mode to the model.** Run Claude / o1 through the "
-        "  pipeline; for Gemini, `--candidate model@direct` is cheaper and "
-        "  scores better on this task.",
+        "- **Don't read a single bench's Elo as a model verdict.** The "
+        "  pipeline reliably produces hypotheses, but at `--n 1` the "
+        "  direct-vs-pipeline delta is within run-to-run noise. Measuring "
+        "  whether the harness helps a given model needs many seeds (higher "
+        "  `--n`, more `--matches`).",
         "- **Recurrence is a weak novelty signal here.** The most-repeated "
         "  picks are the least novel. Surfacing genuinely-novel candidates "
-        "  needs more breadth (multiple seeds, `--n 5+`) and iterative "
-        "  refinement, not a single Generation call.",
+        "  needs more breadth and iterative refinement, not a single "
+        "  Generation call.",
         "",
         "",
     ])
